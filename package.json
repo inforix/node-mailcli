@@ -1,6 +1,6 @@
 {
   "name": "@yupingwang/mailcli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "IMAP/SMTP CLI for generic mail servers",
   "main": "dist/index.js",
   "scripts": {
@@ -44,5 +44,9 @@
   "homepage": "https://github.com/inforix/node-mailcli#readme",
   "bugs": {
     "url": "https://github.com/inforix/node-mailcli/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

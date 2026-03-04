@@ -11,7 +11,11 @@ mailcli --help
 ```bash
 mailcli auth login --imap-host ... --smtp-host ... --username ... --password ...
 ```
-3. Validate connectivity:
+3. (macOS + keychain backend) initialize keychain access once:
+```bash
+mailcli auth keychain-init
+```
+4. Validate connectivity:
 ```bash
 mailcli status
 mailcli inbox list --page 1 --page-size 20

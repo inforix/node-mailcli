@@ -13,6 +13,7 @@ Use this skill to run reliable, repeatable `mailcli` workflows for email operati
 Use this skill when the user asks about:
 - `mailcli` commands or setup
 - IMAP/SMTP authentication and mailbox operations
+- keychain/keyring backend setup and credential storage behavior
 - inbox listing, searching, reading, moving, deleting, tagging
 - sending email, replying, draft save/list/send
 - downloading attachments
@@ -21,6 +22,7 @@ Use this skill when the user asks about:
 以下中文意图也应触发本技能：
 - 邮件 CLI 使用、邮箱命令行管理
 - IMAP/SMTP 配置、鉴权、密钥口令
+- Keychain/Keyring 后端与口令存储策略
 - 收件箱查询、搜索、读信、移动、删除、打标
 - 发信、回复、草稿、附件下载
 - mailcli 报错排障
@@ -72,10 +74,14 @@ npm install -g @yupingwang/mailcli
   - At least one recipient is required (unless inferred from reply flow)
   - A message body (plain/html/quote result) is required
 - For UID operations (`read`, `delete`, `move`, `tag`, `draft send`, `attachments download`), UID must be a positive integer.
+- For `auth login`, omitted fields are interactive in TTY mode; in non-interactive mode defaults are used where available and required fields must be passed explicitly.
+- `auth keychain-init` is a macOS Keychain probe command and requires keychain backend enabled.
 
 - 严格遵循项目中的真实运行语义。
 - `send` 命令需满足 reply 依赖、正文参数互斥、收件人和正文约束。
 - UID 类操作必须使用正整数 UID。
+- `auth login` 在 TTY 下支持缺省参数交互输入；非交互场景必须显式提供缺失必填参数。
+- `auth keychain-init` 用于初始化 Keychain 访问授权（需启用 keychain backend）。
 
 ## Output Contract / 输出约定
 

@@ -38,6 +38,29 @@ export MAILCLI_KEYRING_PASSWORD='correct-keyring-passphrase'
 
 If forgotten, reset by re-running login with new password and passphrase flow.
 
+## `keychain backend is not enabled; set keyring_backend to 'keychain'`
+
+Cause:
+- Running `mailcli auth keychain-init` while backend is `file`.
+
+Fix:
+```bash
+export MAILCLI_KEYRING_BACKEND=keychain
+mailcli auth keychain-init
+```
+
+## `security command failed: ... The authorization was canceled by the user`
+
+Cause:
+- macOS Keychain authorization dialog was denied/canceled.
+
+Fix:
+- Re-run and approve the prompt (prefer “Always Allow” for smoother repeated CLI use).
+- Then run:
+```bash
+mailcli auth keychain-init
+```
+
 ## `no TTY available for keyring password prompt; set MAILCLI_KEYRING_PASSWORD`
 
 Cause:

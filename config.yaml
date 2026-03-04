@@ -12,7 +12,7 @@ smtp:
   insecure_skip_verify: false
 auth:
   username: you@example.com
-  # password is stored in encrypted file backend
+  # password is stored in keyring backend (set to keychain on macOS)
 keyring_backend: file
 defaults:
   drafts_mailbox: Drafts

@@ -9,7 +9,7 @@ function cloneConfig(cfg: Config): Config {
 
 export function defaultConfig(): Config {
   return {
-    keyring_backend: "file",
+    keyring_backend: process.platform === "darwin" ? "keychain" : "file",
     imap: {
       host: "",
       port: 993,

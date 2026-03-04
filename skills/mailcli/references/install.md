@@ -28,9 +28,21 @@ mailcli auth login \
   --password your-app-password
 ```
 
-## 3. Keyring passphrase behavior
+`auth login` can also run interactively (omit some flags and answer prompts in TTY).
 
-`mailcli` stores encrypted secrets in a local keyring file and may ask:
+## 3. Keychain/Keyring backend behavior
+
+By default:
+- macOS: Keychain backend (`keyring_backend: keychain`)
+- non-macOS: encrypted file backend (`keyring_backend: file`)
+
+Initialize Keychain authorization on macOS:
+
+```bash
+mailcli auth keychain-init
+```
+
+When using encrypted file backend, `mailcli` may ask:
 
 ```text
 Keyring password:
@@ -45,7 +57,7 @@ export MAILCLI_KEYRING_PASSWORD='your-keyring-passphrase'
 ## 4. Config paths
 
 - Config file: `~/.config/mailcli/config.yaml`
-- Encrypted secrets: `~/.config/mailcli/keyring/secrets.json`
+- Encrypted file backend secrets: `~/.config/mailcli/keyring/secrets.json`
 
 ## 5. Environment overrides
 
@@ -56,9 +68,10 @@ MAILCLI_IMAP_HOST=imap.example.com
 MAILCLI_SMTP_HOST=smtp.example.com
 MAILCLI_AUTH_USERNAME=you@example.com
 MAILCLI_AUTH_PASSWORD=app-password
+MAILCLI_KEYRING_BACKEND=keychain
 MAILCLI_KEYRING_PASSWORD=your-keyring-passphrase
 ```
 
 Notes:
 - `MAILCLI_AUTH_PASSWORD` bypasses secret lookup and uses env password directly.
-- For safer day-to-day use, prefer encrypted secret storage plus `MAILCLI_KEYRING_PASSWORD`.
+- `MAILCLI_KEYRING_BACKEND` supports `file` or `keychain`.

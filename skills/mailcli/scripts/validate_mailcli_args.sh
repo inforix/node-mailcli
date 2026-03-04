@@ -30,7 +30,7 @@ op="$1"
 shift || true
 
 case "$op" in
-  status|inbox-list|mail-list|mailboxes-list|config-show|config-edit)
+  status|inbox-list|mail-list|mailboxes-list|config-show|config-edit|auth-keychain-init)
     exit 0
     ;;
   search)

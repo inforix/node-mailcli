@@ -2,9 +2,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import process from "node:process";
+import { spawn } from "node:child_process";
+import { loadConfig } from "../config/config.js";
 import { ensureKeyringDir } from "../config/paths.js";
 
 const KEYRING_PASSWORD_ENV = "MAILCLI_KEYRING_PASSWORD";
+const KEYRING_BACKEND_ENV = "MAILCLI_KEYRING_BACKEND";
+const KEYCHAIN_SERVICE = "mailcli";
+
+type SecretBackend = "file" | "keychain";
 
 export class SecretNotFoundError extends Error {
   constructor() {
@@ -24,6 +30,17 @@ type SecretFile = {
   entries: Record<string, SecretEntry>;
 };
 
+class SecurityCommandError extends Error {
+  code: number | null;
+  stderr: string;
+
+  constructor(message: string, code: number | null, stderr: string) {
+    super(message);
+    this.code = code;
+    this.stderr = stderr;
+  }
+}
+
 let cachedPassphrase: string | undefined;
 
 function normalize(value: string): string {
@@ -32,6 +49,51 @@ function normalize(value: string): string {
 
 function passwordKey(username: string): string {
   return `auth:password:${normalize(username)}`;
+}
+
+function parseBackend(raw: string | undefined): SecretBackend | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "file" || normalized === "keychain") {
+    return normalized;
+  }
+
+  return undefined;
+}
+
+function parseRequiredBackend(name: string, raw: string | undefined): SecretBackend | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const parsed = parseBackend(raw);
+  if (!parsed) {
+    throw new Error(`${name} must be one of: file, keychain`);
+  }
+
+  return parsed;
+}
+
+async function resolveBackend(): Promise<SecretBackend> {
+  const envBackend = parseRequiredBackend(KEYRING_BACKEND_ENV, process.env[KEYRING_BACKEND_ENV]);
+  if (envBackend) {
+    return envBackend;
+  }
+
+  const cfg = await loadConfig();
+  const cfgBackend = parseRequiredBackend("keyring_backend", cfg.keyring_backend);
+  if (cfgBackend) {
+    return cfgBackend;
+  }
+
+  return process.platform === "darwin" ? "keychain" : "file";
+}
+
+export async function getSecretBackend(): Promise<SecretBackend> {
+  return resolveBackend();
 }
 
 async function keyringFilePath(): Promise<string> {
@@ -86,7 +148,7 @@ async function readPassphrase(): Promise<string> {
   return passphrase;
 }
 
-async function promptHidden(prompt: string): Promise<string> {
+export async function promptHidden(prompt: string): Promise<string> {
   const stdin = process.stdin;
   const stdout = process.stdout;
 
@@ -169,28 +231,18 @@ function decrypt(entry: SecretEntry, passphrase: string): Buffer {
   return Buffer.concat([decipher.update(data), decipher.final()]);
 }
 
-export async function setSecret(key: string, value: Buffer): Promise<void> {
-  const normalized = key.trim();
-  if (!normalized) {
-    throw new Error("missing secret key");
-  }
-
+async function setSecretFile(key: string, value: Buffer): Promise<void> {
   const passphrase = await readPassphrase();
   const filePath = await keyringFilePath();
   const store = await readFileStore(filePath);
-  store.entries[normalized] = encrypt(value, passphrase);
+  store.entries[key] = encrypt(value, passphrase);
   await writeFileStore(filePath, store);
 }
 
-export async function getSecret(key: string): Promise<Buffer> {
-  const normalized = key.trim();
-  if (!normalized) {
-    throw new Error("missing secret key");
-  }
-
+async function getSecretFile(key: string): Promise<Buffer> {
   const filePath = await keyringFilePath();
   const store = await readFileStore(filePath);
-  const entry = store.entries[normalized];
+  const entry = store.entries[key];
   if (!entry) {
     throw new SecretNotFoundError();
   }
@@ -201,6 +253,160 @@ export async function getSecret(key: string): Promise<Buffer> {
   } catch {
     throw new Error("failed to decrypt secret; check MAILCLI_KEYRING_PASSWORD");
   }
+}
+
+function trimTrailingLineEnding(value: string): string {
+  if (value.endsWith("\r\n")) {
+    return value.slice(0, -2);
+  }
+  if (value.endsWith("\n")) {
+    return value.slice(0, -1);
+  }
+  return value;
+}
+
+async function runSecurity(args: string[]): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn("security", args, { stdio: ["ignore", "pipe", "pipe"] });
+
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+
+    child.on("error", (err) => {
+      reject(err);
+    });
+
+    child.on("exit", (code) => {
+      const out = Buffer.concat(stdout).toString("utf8");
+      const err = Buffer.concat(stderr).toString("utf8");
+      if (code === 0) {
+        resolve(out);
+        return;
+      }
+      reject(new SecurityCommandError(`security command failed: ${err || `exit code ${code ?? "unknown"}`}`.trim(), code, err));
+    });
+  });
+}
+
+function ensureKeychainSupported(): void {
+  if (process.platform !== "darwin") {
+    throw new Error("keychain backend is only supported on macOS");
+  }
+}
+
+function isKeychainItemNotFound(err: unknown): boolean {
+  return err instanceof SecurityCommandError && /could not be found|item not found/i.test(err.stderr);
+}
+
+async function setSecretKeychain(key: string, value: Buffer): Promise<void> {
+  ensureKeychainSupported();
+  await runSecurity([
+    "add-generic-password",
+    "-a",
+    key,
+    "-s",
+    KEYCHAIN_SERVICE,
+    "-w",
+    value.toString("utf8"),
+    "-U"
+  ]);
+}
+
+async function getSecretKeychain(key: string): Promise<Buffer> {
+  ensureKeychainSupported();
+
+  try {
+    const out = await runSecurity([
+      "find-generic-password",
+      "-a",
+      key,
+      "-s",
+      KEYCHAIN_SERVICE,
+      "-w"
+    ]);
+    return Buffer.from(trimTrailingLineEnding(out), "utf8");
+  } catch (err) {
+    if (isKeychainItemNotFound(err)) {
+      throw new SecretNotFoundError();
+    }
+    throw err;
+  }
+}
+
+async function deleteSecretKeychain(key: string): Promise<void> {
+  ensureKeychainSupported();
+  try {
+    await runSecurity([
+      "delete-generic-password",
+      "-a",
+      key,
+      "-s",
+      KEYCHAIN_SERVICE
+    ]);
+  } catch (err) {
+    if (isKeychainItemNotFound(err)) {
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function initializeKeychainAccess(): Promise<void> {
+  const backend = await resolveBackend();
+  if (backend !== "keychain") {
+    throw new Error("keychain backend is not enabled; set keyring_backend to 'keychain'");
+  }
+
+  ensureKeychainSupported();
+  const testKey = `mailcli:keychain-init:${process.pid}:${Date.now()}`;
+  const testValue = `mailcli-init-${crypto.randomUUID()}`;
+
+  await setSecretKeychain(testKey, Buffer.from(testValue, "utf8"));
+  try {
+    const loaded = await getSecretKeychain(testKey);
+    if (loaded.toString("utf8") !== testValue) {
+      throw new Error("keychain verification failed");
+    }
+  } finally {
+    await deleteSecretKeychain(testKey);
+  }
+}
+
+export async function setSecret(key: string, value: Buffer): Promise<void> {
+  const normalized = key.trim();
+  if (!normalized) {
+    throw new Error("missing secret key");
+  }
+
+  const backend = await resolveBackend();
+  if (backend === "keychain") {
+    await setSecretKeychain(normalized, value);
+    return;
+  }
+
+  await setSecretFile(normalized, value);
+}
+
+export async function getSecret(key: string): Promise<Buffer> {
+  const normalized = key.trim();
+  if (!normalized) {
+    throw new Error("missing secret key");
+  }
+
+  const backend = await resolveBackend();
+  if (backend === "keychain") {
+    return getSecretKeychain(normalized);
+  }
+
+  return getSecretFile(normalized);
 }
 
 export async function setPassword(username: string, password: string): Promise<void> {

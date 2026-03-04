@@ -28,6 +28,7 @@ Top-level commands:
 
 ```bash
 mailcli auth login [options]
+mailcli auth keychain-init
 ```
 
 Common options:
@@ -44,6 +45,11 @@ Common options:
 - `--username <username>`
 - `--password <password>`
 - `--drafts-mailbox <name>`
+
+Notes:
+- `auth login` prompts interactively for omitted fields when running in TTY.
+- In non-interactive mode, required missing values must be provided explicitly.
+- `auth keychain-init` verifies macOS Keychain access by writing/reading/deleting a temporary secret.
 
 ## Status / Listing / Search
 

@@ -11,6 +11,7 @@ Usage:
 
 Operations:
   auth-login
+  auth-keychain-init
   status
   inbox-list
   mail-list
@@ -58,6 +59,9 @@ cmd=(mailcli)
 case "$op" in
   auth-login)
     cmd+=(auth login "$@")
+    ;;
+  auth-keychain-init)
+    cmd+=(auth keychain-init "$@")
     ;;
   status)
     cmd+=(status "$@")
